@@ -10,13 +10,14 @@ import { LoginDto, ChangePasswordDto } from './dto/auth.dto';
 import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import type { Personnel, RolePersonnel, StatutDemande } from '@prisma/client';
+import { RegisterDto } from './dto/register.dto';
 
 @ApiTags('Authentification')
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Post('login')
   @ApiOperation({ summary: 'Connexion utilisateur' })
@@ -25,6 +26,37 @@ export class AuthController {
   async login(@Body() loginDto: LoginDto) {
     this.logger.log(`Tentative de connexion pour: ${loginDto.email}`);
     return this.authService.login(loginDto);
+  }
+
+  @Post('register')
+  @ApiOperation({ summary: 'Inscription d\'un nouvel utilisateur' })
+  @ApiResponse({
+    status: 201,
+    description: 'Inscription réussie',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        user: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            nom: { type: 'string' },
+            prenom: { type: 'string' },
+            email: { type: 'string' },
+            role: { type: 'string' },
+            service: { type: 'string' },
+            direction: { type: 'string' },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Données invalides' })
+  @ApiResponse({ status: 409, description: 'Email déjà utilisé' })
+  async register(@Body() registerDto: RegisterDto) {
+    this.logger.log(`Tentative d'inscription pour: ${registerDto.email}`);
+    return this.authService.register(registerDto);
   }
 
   @Post('change-password')

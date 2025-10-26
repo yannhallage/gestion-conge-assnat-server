@@ -1,8 +1,10 @@
-import { Injectable, UnauthorizedException, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Logger, BadRequestException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import { LoginDto, ChangePasswordDto } from './dto/auth.dto';
 import * as bcrypt from 'bcryptjs';
+import { RegisterDto } from './dto/register.dto';
+import { RolePersonnel, TypePersonnel } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -11,19 +13,17 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-  ) {}
+  ) { }
 
   async validateUser(email: string, password: string): Promise<any> {
     this.logger.log(`Tentative de connexion pour l'email: ${email}`);
-    
+
     const user = await this.prisma.personnel.findUnique({
       where: { email_travail: email },
-      include: { 
-        service: { 
-          include: { 
-            direction: true 
-          } 
-        } 
+      include: {
+        service: {
+          include: { direction: true },
+        },
       },
     });
 
@@ -54,11 +54,11 @@ export class AuthService {
 
   async login(loginDto: LoginDto) {
     const user = await this.validateUser(loginDto.email, loginDto.password);
-    
-    const payload = { 
-      email: user.email_travail, 
+
+    const payload = {
+      email: user.email_travail,
       sub: user.id_personnel,
-      role: user.role_personnel 
+      role: user.role_personnel,
     };
 
     const accessToken = this.jwtService.sign(payload);
@@ -119,5 +119,74 @@ export class AuthService {
       password += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return password;
+  }
+
+  async register(registerDto: RegisterDto) {
+    this.logger.log(`Tentative d'inscription pour: ${registerDto.email}`);
+
+    // Vérifier si l'email existe déjà
+    const existingUser = await this.prisma.personnel.findUnique({
+      where: { email_travail: registerDto.email },
+    });
+
+    if (existingUser) {
+      this.logger.warn(`Tentative d'inscription avec un email existant: ${registerDto.email}`);
+      throw new ConflictException('Cet email est déjà utilisé');
+    }
+
+    // Vérifier si le service existe
+    const service = await this.prisma.service.findUnique({
+      where: { id_service: registerDto.id_service },
+    });
+
+    if (!service) {
+      this.logger.warn(`Service non trouvé: ${registerDto.id_service}`);
+      throw new BadRequestException('Service non trouvé');
+    }
+
+    // Vérifier que le mot de passe est fourni
+    if (!registerDto.password) {
+      this.logger.warn(`Mot de passe manquant pour l'inscription de: ${registerDto.email}`);
+      throw new BadRequestException('Le mot de passe est requis');
+    }
+
+    // Hasher le mot de passe
+    const hashedPassword = await bcrypt.hash(registerDto.password, 10);
+
+    // Créer l'utilisateur
+    const user = await this.prisma.personnel.create({
+      data: {
+        nom_personnel: registerDto.nom,
+        prenom_personnel: registerDto.prenom,
+        email_travail: registerDto.email,
+        password: hashedPassword,
+        id_service: registerDto.id_service,
+        role_personnel: (registerDto.role as RolePersonnel) || RolePersonnel.EMPLOYE,
+        type_personnel: (registerDto.type as TypePersonnel) || TypePersonnel.PERMANENT,
+        matricule_personnel: registerDto.matricule,
+        telephone_travail: registerDto.telephone_travail,
+        is_active: true,
+      },
+      include: {
+        service: {
+          include: { direction: true },
+        },
+      },
+    });
+
+    this.logger.log(`Utilisateur créé avec succès: ${user.email_travail}`);
+
+    return {
+      message: 'Inscription réussie',
+      user: {
+        id: user.id_personnel,
+        nom: user.nom_personnel,
+        prenom: user.prenom_personnel,
+        email: user.email_travail,
+        role: user.role_personnel,
+        service: user.service?.nom_service,
+        direction: user.service?.direction?.nom_direction,
+      },
+    };
   }
 }

@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { ChefdeserviceModule } from './chefdeservice/chefdeservice.module';
 import { RhModule } from './rh/rh.module';
+import { RegisterModule } from './register/register.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { RhModule } from './rh/rh.module';
     UserModule,
     ChefdeserviceModule,
     RhModule,
+    RegisterModule,
   ],
   controllers: [AppController],
   providers: [AppService],
