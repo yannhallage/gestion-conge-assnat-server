@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import { CreateDirectionDto } from './dto/create-direction.dto';
 import { CreateServiceDto } from './dto/create-service.dto';
@@ -61,31 +62,52 @@ export class RhService {
   // -----------------------------
   // Créer un personnel et envoyer un email de notification
   // -----------------------------
+  /**
+   * Crée un nouveau personnel dans le système.
+   * Le mot de passe est hashé avant l'enregistrement.
+   * Un email de bienvenue est envoyé.
+   */
   async createPersonnel(dto: CreatePersonnelDto) {
-    // Créer le personnel dans la base
-    const personnel = await this.prisma.personnel.create({
-      data: dto,
-      include: { service: true },
-    });
-
-    const message = `
-      <p>Bonjour ${personnel.prenom_personnel} ${personnel.nom_personnel},</p>
-      <p>Votre compte a été créé avec succès dans le système de gestion des congés.</p>
-      <p>Vous pouvez maintenant accéder à votre interface dédiée.</p>
-    `;
+    if (!dto.password) {
+      throw new BadRequestException('Le mot de passe est requis');
+    }
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
 
     try {
-      await this.emailService.sendNotificationEmail(
-        personnel.email_travail!,
-        'Bienvenue dans le système de gestion des congés',
-        message,
-      );
-    } catch (error) {
-      console.error(`Erreur lors de l'envoi de l'email à ${personnel.email_travail}:`, error);
-      // L'échec de l'email ne bloque pas la création du personnel
-    }
+      const personnel = await this.prisma.personnel.create({
+        data: {
+          ...dto,
+          password: hashedPassword,
+        },
+        include: { service: true },
+      });
 
-    return personnel;
+      this.logger.log(`Personnel créé : ${personnel.nom_personnel} ${personnel.prenom_personnel}`);
+
+      const message = `
+        <p>Bonjour ${personnel.prenom_personnel} ${personnel.nom_personnel},</p>
+        <p>Votre compte a été créé avec succès dans le système de gestion des congés.</p>
+        <p>Vous pouvez maintenant accéder à votre interface dédiée.</p>
+      `;
+
+      try {
+        await this.emailService.sendNotificationEmail(
+          personnel.email_travail!,
+          'Bienvenue dans le système de gestion des congés',
+          message,
+        );
+        this.logger.log(`Email de bienvenue envoyé à ${personnel.email_travail}`);
+      } catch (emailError) {
+        this.logger.error(
+          `Échec de l'envoi de l'email à ${personnel.email_travail}: ${emailError.message}`,
+        );
+      }
+
+      return personnel;
+    } catch (error) {
+      this.logger.error(`Erreur lors de la création du personnel: ${error.message}`);
+      throw new BadRequestException('Impossible de créer le personnel');
+    }
   }
 
   async getAllPersonnel() {
