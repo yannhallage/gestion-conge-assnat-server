@@ -6,6 +6,8 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');;
+import { config } from 'dotenv';
+config();
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');

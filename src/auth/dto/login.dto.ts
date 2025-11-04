@@ -7,7 +7,7 @@ export class LoginDto {
         description: 'Adresse e-mail du personnel',
     })
     @IsEmail({}, { message: 'L’adresse e-mail doit être valide.' })
-    email_travail: string;
+    email_personnel: string;
 
     @ApiProperty({
         example: 'MotDePasse123!',

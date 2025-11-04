@@ -17,7 +17,7 @@ export class AuthService {
   // -----------------------------
   async validatePersonnel(email: string, password: string): Promise<Personnel> {
     const user = await this.prisma.personnel.findFirst({
-      where: { email_travail: email, is_active: true },
+      where: { email_personnel: email, is_active: true },
     });
 
     if (!user || !user.password) {
@@ -29,7 +29,7 @@ export class AuthService {
       throw new UnauthorizedException('Mot de passe incorrect');
     }
 
-    if (!user.email_travail) {
+    if (!user.email_personnel) {
       throw new UnauthorizedException('Email du personnel manquant');
     }
 
@@ -50,11 +50,11 @@ export class AuthService {
     };
     redirect: string;
   }> {
-    const user = await this.validatePersonnel(dto.email_travail, dto.password);
+    const user = await this.validatePersonnel(dto.email_personnel, dto.password);
 
     const payload = {
       sub: user.id_personnel,
-      email: user.email_travail!, // TS sait que ce n'est plus null
+      email: user.email_personnel!, // TS sait que ce n'est plus null
       role: user.role_personnel,
       nom: user.nom_personnel,
       prenom: user.prenom_personnel,
@@ -67,13 +67,13 @@ export class AuthService {
     switch (user.role_personnel) {
       case 'RH':
       case 'ADMIN':
-        redirect = '/rh/dashboard';
+        redirect = 'rh';
         break;
       case 'CHEF_SERVICE':
-        redirect = '/chef/dashboard';
+        redirect = 'chef';
         break;
       default:
-        redirect = '/employe/dashboard';
+        redirect = 'employe';
     }
 
     return {

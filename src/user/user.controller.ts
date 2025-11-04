@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Query, Param, Body, Logger, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Query, Param, Body, UseGuards, Request, Logger, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiQuery } from '@nestjs/swagger';
 import { UserService } from './user.service';
 import type { Personnel } from '@prisma/client';
@@ -7,9 +7,13 @@ import {
   // CreatePeriodeCongeDto,
   CreateDiscussionDto,
 } from './dto/user.dto';
+import { RolesGuard } from 'src/shared/guards/roles.guard';
+import { Roles } from 'src/shared/decorators/roles.decorator';
+import { JwtAuthGuard } from 'src/shared/guards/jwt-auth.guard';
 
 @ApiTags('Utilisateur')
 @Controller('user')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class UserController {
   private readonly logger = new Logger(UserController.name);
 
@@ -19,6 +23,7 @@ export class UserController {
   // Créer une demande
   // -----------------------------
   @Post('demandes')
+  @Roles('EMPLOYE', 'CHEF_SERVICE', 'RH', 'ADMIN')
   @ApiOperation({ summary: 'Créer une nouvelle demande de congé' })
   @ApiResponse({ status: 201, description: 'Demande créée avec succès' })
   @ApiResponse({ status: 400, description: 'Données invalides ou dates incorrectes' })
@@ -44,17 +49,20 @@ export class UserController {
   // Récupérer toutes mes demandes
   // -----------------------------
   @Get('demandes')
+  @Roles('EMPLOYE', 'CHEF_SERVICE', 'RH', 'ADMIN')
   @ApiOperation({ summary: 'Récupérer toutes mes demandes' })
   @ApiResponse({ status: 200, description: 'Liste des demandes de l’utilisateur' })
-  async getMyDemandes(@Query('id_personnel') id_personnel: string) {
+  async getMyDemandes(@Request() req) {
+    const user = req.user; // ✅ correction de la casse
     this.logger.log(`Récupération des demandes`);
-    return this.userService.getMyDemandes(id_personnel);
+    return this.userService.getMyDemandes(user);
   }
 
   // -----------------------------
   // Récupérer les détails d'une demande
   // -----------------------------
   @Get('demandes/:id')
+  @Roles('EMPLOYE', 'CHEF_SERVICE', 'RH', 'ADMIN')
   @ApiOperation({ summary: 'Récupérer les détails d\'une demande' })
   @ApiResponse({ status: 200, description: 'Détails de la demande' })
   @ApiResponse({ status: 404, description: 'Demande non trouvée' })
@@ -85,6 +93,7 @@ export class UserController {
   // Récupérer les types de congé actifs
   // -----------------------------
   @Get('types-conge')
+  @Roles('EMPLOYE', 'CHEF_SERVICE', 'RH', 'ADMIN')
   @ApiOperation({ summary: 'Récupérer tous les types de congé actifs' })
   @ApiResponse({ status: 200, description: 'Liste des types de congé actifs' })
   async getTypesConge() {
@@ -96,6 +105,7 @@ export class UserController {
   // Ajouter une discussion à une demande
   // -----------------------------
   @Post('demandes/:id/discussions')
+  @Roles('EMPLOYE', 'CHEF_SERVICE', 'RH', 'ADMIN')
   @ApiOperation({ summary: 'Ajouter une discussion à une demande' })
   @ApiResponse({ status: 201, description: 'Discussion ajoutée' })
   @ApiResponse({ status: 404, description: 'Demande non trouvée' })
@@ -127,12 +137,11 @@ export class UserController {
     return this.userService.addDiscussionToDemande(id_personnel, demandeId, dto);
   }
 
-
   // -----------------------------
-  // recuperer les discussion à une demande
+  // Récupérer les discussions d'une demande
   // -----------------------------
-
   @Get('demandes/:id/discussions')
+  @Roles('EMPLOYE', 'CHEF_SERVICE', 'RH', 'ADMIN')
   @ApiOperation({ summary: 'Récupérer toutes les discussions d’une demande' })
   @ApiResponse({ status: 200, description: 'Liste des discussions' })
   @ApiResponse({ status: 404, description: 'Demande non trouvée' })
@@ -144,6 +153,5 @@ export class UserController {
     return this.userService.getDiscussionsByDemande(id_personnel, demandeId);
   }
 
-
-  // prochaine route annulée la demandes et telechagerfiche congé
+  // prochaine route annulée la demandes et telechager fiche congé
 }
