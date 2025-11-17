@@ -49,6 +49,37 @@ export class ChefdeserviceService {
     return demandes;
   }
 
+  async getHistoriqueDemandes(id_chef: string) {
+    this.logger.log(`Récupération de l’historique des demandes pour le chef ${id_chef}`);
+
+    const chef = await this.prisma.personnel.findUnique({
+      where: { id_personnel: id_chef },
+      include: { service: true },
+    });
+
+    if (!chef) {
+      throw new NotFoundException('Chef de service non trouvé');
+    }
+
+    if (!chef.service) {
+      throw new NotFoundException('Service du chef introuvable');
+    }
+
+    return this.prisma.demande.findMany({
+      where: {
+        id_service: chef.service.id_service,
+        statut_demande: { in: ['TERMINEE', 'REFUSEE'] },
+      },
+      include: {
+        personnel: true,
+        periodeConge: { include: { typeConge: true } },
+        discussions: { orderBy: { date_message: 'desc' } },
+        ficheDeConge: true,
+      },
+      orderBy: { date_demande: 'desc' },
+    });
+  }
+
   async approveDemande(chef: Personnel, demandeId: string, approveDto: ApproveDemandeDto) {
     this.logger.log(`Approbation de la demande ${demandeId} par le chef ${chef.email_travail}`);
 
