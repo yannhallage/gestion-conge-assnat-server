@@ -70,9 +70,17 @@ async function bootstrap() {
   // -----------------------------
   // Lancement du serveur
   // -----------------------------
-  const port = process.env.PORT ? parseInt(process.env.PORT) : 3003;
+  // const port = process.env.PORT ? parseInt(process.env.PORT) : 3003;
+  // await app.listen(port);
+  // logger.log(`Application is running on: http://localhost:${port}`);
+
+  
+  // -----------------------------
+  // Port dynamique Render + fallback local
+  // -----------------------------
+  const port = parseInt(process.env.PORT || '3000', 10);
   await app.listen(port);
-  logger.log(`Application is running on: http://localhost:${port}`);
+  logger.log(`Application is running on port: ${port}`);
 }
 
 bootstrap();
