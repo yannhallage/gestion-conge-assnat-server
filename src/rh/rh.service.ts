@@ -74,15 +74,23 @@ export class RhService {
     return await prisma.$transaction(async (tx) => {
       try {
         // 1️⃣ Détermination du mot de passe
-        let passwordToUse = dto.password;
+        const sanitizeName = (value?: string) =>
+          (value ?? '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-zA-Z0-9]/g, '')
+            .toLowerCase();
 
-        if (dto.role_personnel === 'CHEF_SERVICE') {
-          passwordToUse = Math.random().toString(36).slice(-8); // 8 caractères aléatoires
-          this.logger.log(`🔐 Mot de passe auto-généré pour le chef de service`);
+        const baseName = sanitizeName(dto.prenom_personnel) || sanitizeName(dto.nom_personnel);
+
+        if (!baseName) {
+          throw new BadRequestException('Le prénom ou le nom est requis pour générer le mot de passe');
         }
 
-        if (!passwordToUse) {
-          throw new BadRequestException('Le mot de passe est requis pour ce rôle');
+        const passwordToUse = `${baseName}@assnat.ci`;
+
+        if (dto.role_personnel === 'CHEF_SERVICE') {
+          this.logger.log(`🔐 Mot de passe auto-généré pour le chef de service`);
         }
 
         const hashedPassword = await bcrypt.hash(passwordToUse, 10);
