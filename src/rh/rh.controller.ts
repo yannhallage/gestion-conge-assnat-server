@@ -1,201 +1,163 @@
-import { Controller, Get, Post, Put, Delete, Body, UseGuards, Param, Logger } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Post, Put, Delete, Param, Body, UseGuards, Logger } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { RhService } from './rh.service';
-import { CreateDirectionDto, CreateServiceDto, CreatePersonnelDto, UpdatePersonnelDto } from './dto/rh.dto';
-import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
-import { RolesGuard } from '../shared/guards/roles.guard';
-import { Roles } from '../shared/decorators/roles.decorator';
-import { CurrentUser } from '../shared/decorators/current-user.decorator';
-import type { Personnel } from '@prisma/client';
-import { RolePersonnel } from '@prisma/client';
+import {
+  CreateDirectionDto,
+  CreateServiceDto,
+  CreatePersonnelDto,
+  UpdatePersonnelDto,
+  // CreateAlertDto,
+} from './dto/rh.dto';
+import { CreateTypeCongeDto } from './dto/create-type-conge.dto';
+import { RolesGuard } from 'src/shared/guards/roles.guard';
+// import { Roles } from 'src/shared/decorators/roles.decorator';
+import { JwtAuthGuard } from 'src/shared/guards/jwt-auth.guard';
 
-type PersonnelWithRelations = Personnel & {
-  service?: {
-    nom_service: string;
-    direction?: {
-      nom_direction: string;
-    };
-  };
-};
-
+@UseGuards(JwtAuthGuard, RolesGuard)
 @ApiTags('Ressources Humaines')
 @Controller('rh')
-@UseGuards(JwtAuthGuard)
-@ApiBearerAuth()
 export class RhController {
   private readonly logger = new Logger(RhController.name);
 
   constructor(private readonly rhService: RhService) { }
 
-  // Gestion des Directions
+  // ---------------
+  // Directions
+  // -----------------------------
   @Post('directions')
-  @Roles(RolePersonnel.RH)
-  @UseGuards(RolesGuard)
   @ApiOperation({ summary: 'Créer une nouvelle direction' })
   @ApiResponse({ status: 201, description: 'Direction créée avec succès' })
-  @ApiResponse({ status: 409, description: 'Code de direction déjà utilisé' })
-  @ApiResponse({ status: 401, description: 'Non autorisé' })
-  async createDirection(
-    @CurrentUser() user: PersonnelWithRelations,
-    @Body() createDirectionDto: CreateDirectionDto,
-  ) {
-    this.logger.log(`Création d'une direction par ${user.email_travail}`);
-    return this.rhService.createDirection(createDirectionDto);
+  async createDirection(@Body() dto: CreateDirectionDto) {
+    this.logger.log(`Création d'une direction: ${dto.nom_direction}`);
+    return this.rhService.createDirection(dto);
   }
 
   @Get('directions')
-  @Roles(RolePersonnel.RH)
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Consulter toutes les directions' })
+  @ApiOperation({ summary: 'Récupérer toutes les directions' })
   @ApiResponse({ status: 200, description: 'Liste des directions' })
-  @ApiResponse({ status: 401, description: 'Non autorisé' })
-  async getAllDirections(@CurrentUser() user: PersonnelWithRelations) {
-    this.logger.log(`Récupération des directions par ${user.email_travail}`);
+  async getAllDirections() {
+    this.logger.log('Récupération de toutes les directions');
     return this.rhService.getAllDirections();
   }
 
   @Get('directions/:id')
-  @Roles(RolePersonnel.RH)
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Consulter une direction par ID' })
-  @ApiResponse({ status: 200, description: 'Détails de la direction' })
-  @ApiResponse({ status: 404, description: 'Direction non trouvée' })
-  @ApiResponse({ status: 401, description: 'Non autorisé' })
-  async getDirectionById(
-    @CurrentUser() user: PersonnelWithRelations,
-    @Param('id') id: string,
-  ) {
-    this.logger.log(`Récupération de la direction ${id} par ${user.email_travail}`);
+  @ApiOperation({ summary: 'Récupérer une direction par ID' })
+  @ApiResponse({ status: 200, description: 'Direction trouvée' })
+  async getDirectionById(@Param('id') id: string) {
+    this.logger.log(`Récupération de la direction ${id}`);
     return this.rhService.getDirectionById(id);
   }
 
-  // Gestion des Services
+  // -----------------------------
+  // Services
+  // -----------------------------
   @Post('services')
-  @Roles(RolePersonnel.RH)
-  @UseGuards(RolesGuard)
   @ApiOperation({ summary: 'Créer un nouveau service' })
   @ApiResponse({ status: 201, description: 'Service créé avec succès' })
-  @ApiResponse({ status: 404, description: 'Direction non trouvée' })
-  @ApiResponse({ status: 409, description: 'Code de service déjà utilisé' })
-  @ApiResponse({ status: 401, description: 'Non autorisé' })
-  async createService(
-    @CurrentUser() user: PersonnelWithRelations,
-    @Body() createServiceDto: CreateServiceDto,
-  ) {
-    this.logger.log(`Création d'un service par ${user.email_travail}`);
-    return this.rhService.createService(createServiceDto);
+  async createService(@Body() dto: CreateServiceDto) {
+    this.logger.log(`Création d'un service: ${dto.nom_service}`);
+    return this.rhService.createService(dto);
   }
 
   @Get('services')
-  @Roles(RolePersonnel.RH)
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Consulter tous les services' })
+  @ApiOperation({ summary: 'Récupérer tous les services' })
   @ApiResponse({ status: 200, description: 'Liste des services' })
-  @ApiResponse({ status: 401, description: 'Non autorisé' })
-  async getAllServices(@CurrentUser() user: PersonnelWithRelations) {
-    this.logger.log(`Récupération des services par ${user.email_travail}`);
+  async getAllServices() {
+    this.logger.log('Récupération de tous les services');
     return this.rhService.getAllServices();
   }
 
   @Get('services/:id')
-  @Roles(RolePersonnel.RH)
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Consulter un service par ID' })
-  @ApiResponse({ status: 200, description: 'Détails du service' })
-  @ApiResponse({ status: 404, description: 'Service non trouvé' })
-  @ApiResponse({ status: 401, description: 'Non autorisé' })
-  async getServiceById(
-    @CurrentUser() user: PersonnelWithRelations,
-    @Param('id') id: string,
-  ) {
-    this.logger.log(`Récupération du service ${id} par ${user.email_travail}`);
+  @ApiOperation({ summary: 'Récupérer un service par ID' })
+  @ApiResponse({ status: 200, description: 'Service trouvé' })
+  async getServiceById(@Param('id') id: string) {
+    this.logger.log(`Récupération du service ${id}`);
     return this.rhService.getServiceById(id);
   }
 
-  // Gestion du Personnel
-  @Post('personnel')
-  @Roles(RolePersonnel.RH)
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Ajouter un nouveau personnel' })
+  // -----------------------------
+  // Personnel
+  // -----------------------------
+  @Post('personnels')
+  @ApiOperation({ summary: 'Créer un nouveau personnel' })
   @ApiResponse({ status: 201, description: 'Personnel créé avec succès' })
-  @ApiResponse({ status: 404, description: 'Service non trouvé' })
-  @ApiResponse({ status: 409, description: 'Email ou matricule déjà utilisé' })
-  @ApiResponse({ status: 401, description: 'Non autorisé' })
-  async createPersonnel(
-    @CurrentUser() user: PersonnelWithRelations,
-    @Body() createPersonnelDto: CreatePersonnelDto,
-  ) {
-    this.logger.log(`Création d'un personnel par ${user.email_travail}`);
-    return this.rhService.createPersonnel(createPersonnelDto);
+  async createPersonnel(@Body() dto: CreatePersonnelDto) {
+    this.logger.log(`Création du personnel`);
+    return this.rhService.createPersonnel(dto);
+  }
+  // -----------------------------
+  // Typede congé
+  // -----------------------------
+  @Post('types-conge')
+  @ApiOperation({ summary: 'Créer un nouveau type de congé' })
+  @ApiResponse({ status: 201, description: 'Type de congé créé avec succès' })
+  @ApiResponse({ status: 400, description: 'Libellé déjà existant ou données invalides' })
+  async createTypeConge(@Body() dto: CreateTypeCongeDto) {
+    return this.rhService.createTypeConge(dto);
   }
 
-  @Get('personnel')
-  @Roles(RolePersonnel.RH)
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Consulter tout le personnel' })
+  @Get('personnels')
+  @ApiOperation({ summary: 'Récupérer tout le personnel' })
   @ApiResponse({ status: 200, description: 'Liste du personnel' })
-  @ApiResponse({ status: 401, description: 'Non autorisé' })
-  async getAllPersonnel(@CurrentUser() user: PersonnelWithRelations) {
-    this.logger.log(`Récupération du personnel par ${user.email_travail}`);
+  async getAllPersonnel() {
+    this.logger.log('Récupération de tout le personnel');
     return this.rhService.getAllPersonnel();
   }
 
-  @Get('personnel/:id')
-  @Roles(RolePersonnel.RH)
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Consulter un personnel par ID' })
-  @ApiResponse({ status: 200, description: 'Détails du personnel' })
-  @ApiResponse({ status: 404, description: 'Personnel non trouvé' })
-  @ApiResponse({ status: 401, description: 'Non autorisé' })
-  async getPersonnelById(
-    @CurrentUser() user: PersonnelWithRelations,
-    @Param('id') id: string,
-  ) {
-    this.logger.log(`Récupération du personnel ${id} par ${user.email_travail}`);
+  @Get('personnels/:id')
+  @ApiOperation({ summary: 'Récupérer un personnel par ID' })
+  @ApiResponse({ status: 200, description: 'Personnel trouvé' })
+  async getPersonnelById(@Param('id') id: string) {
+    this.logger.log(`Récupération du personnel ${id}`);
     return this.rhService.getPersonnelById(id);
   }
 
-  @Put('personnel/:id')
-  @Roles(RolePersonnel.RH)
-  @UseGuards(RolesGuard)
+  @Put('personnels/:id')
   @ApiOperation({ summary: 'Mettre à jour un personnel' })
   @ApiResponse({ status: 200, description: 'Personnel mis à jour avec succès' })
-  @ApiResponse({ status: 404, description: 'Personnel non trouvé' })
-  @ApiResponse({ status: 409, description: 'Email déjà utilisé' })
-  @ApiResponse({ status: 401, description: 'Non autorisé' })
-  async updatePersonnel(
-    @CurrentUser() user: PersonnelWithRelations,
-    @Param('id') id: string,
-    @Body() updatePersonnelDto: UpdatePersonnelDto,
-  ) {
-    this.logger.log(`Mise à jour du personnel ${id} par ${user.email_travail}`);
-    return this.rhService.updatePersonnel(id, updatePersonnelDto);
+  async updatePersonnel(@Param('id') id: string, @Body() dto: UpdatePersonnelDto) {
+    this.logger.log(`Mise à jour du personnel ${id}`);
+    return this.rhService.updatePersonnel(id, dto);
   }
 
-  @Delete('personnel/:id')
-  @Roles(RolePersonnel.RH)
-  @UseGuards(RolesGuard)
+  @Delete('personnels/:id')
   @ApiOperation({ summary: 'Désactiver un personnel' })
   @ApiResponse({ status: 200, description: 'Personnel désactivé avec succès' })
-  @ApiResponse({ status: 404, description: 'Personnel non trouvé' })
-  @ApiResponse({ status: 401, description: 'Non autorisé' })
-  async deletePersonnel(
-    @CurrentUser() user: PersonnelWithRelations,
-    @Param('id') id: string,
-  ) {
-    this.logger.log(`Désactivation du personnel ${id} par ${user.email_travail}`);
+  async deletePersonnel(@Param('id') id: string) {
+    this.logger.log(`Désactivation du personnel ${id}`);
     return this.rhService.deletePersonnel(id);
   }
 
-  // Statistiques
+  // -----------------------------
+  // Statistiques RH
+  // -----------------------------
   @Get('statistics')
-  @Roles(RolePersonnel.RH)
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Consulter les statistiques RH' })
+  @ApiOperation({ summary: 'Récupérer les statistiques RH' })
   @ApiResponse({ status: 200, description: 'Statistiques RH' })
-  @ApiResponse({ status: 401, description: 'Non autorisé' })
-  async getStatistics(@CurrentUser() user: PersonnelWithRelations) {
-    this.logger.log(`Récupération des statistiques par ${user.email_travail}`);
+  async getStatistics() {
+    this.logger.log('Récupération des statistiques RH');
     return this.rhService.getStatistics();
+  }
+
+  // -----------------------------
+  // Alertes
+  // -----------------------------
+  // @Post('alerts')
+  // @ApiOperation({ summary: 'Créer une alerte' })
+  // @ApiResponse({ status: 201, description: 'Alerte créée' })
+  // async createAlert(@Body() dto: CreateAlertDto) {
+  //   this.logger.log(`Création d'une alerte: ${JSON.stringify(dto)}`);
+  //   return this.rhService.createAlert(dto);
+  // }
+
+  // -----------------------------
+  // Consulter toutes les demandes
+  // -----------------------------
+  @Get('demandes')
+  @ApiOperation({ summary: 'Récupérer toutes les demandes de congé' })
+  @ApiResponse({ status: 200, description: 'Liste des demandes' })
+  async getDemandes() {
+    this.logger.log('Récupération de toutes les demandes');
+    return this.rhService.consulterDemandes();
   }
 }

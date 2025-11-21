@@ -1,32 +1,40 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException, Logger } from '@nestjs/common';
+import {
+    Injectable,
+    CanActivate,
+    ExecutionContext,
+    ForbiddenException,
+    UnauthorizedException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { RolePersonnel } from '@prisma/client';
+import { ROLES_KEY } from '../decorators/roles.decorator';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
-  private readonly logger = new Logger(RolesGuard.name);
+    constructor(private reflector: Reflector) { }
 
-  constructor(private reflector: Reflector) { }
+    canActivate(context: ExecutionContext): boolean {
+        const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
+            context.getHandler(),
+            context.getClass(),
+        ]);
 
-  canActivate(context: ExecutionContext): boolean {
-    const requiredRoles = this.reflector.get<RolePersonnel[]>('roles', context.getHandler());
-    if (!requiredRoles || requiredRoles.length === 0) return true;
+        // Si aucune restriction de rôle, autoriser l'accès
+        if (!requiredRoles || requiredRoles.length === 0) {
+            return true;
+        }
 
-    const request = context.switchToHttp().getRequest();
-    const user = request.user;
+        const { user } = context.switchToHttp().getRequest();
 
-    if (!user) {
-      this.logger.warn('Utilisateur non authentifié');
-      throw new ForbiddenException('Utilisateur non authentifié');
+        // Si pas d'utilisateur dans la requête (ex: token manquant)
+        if (!user) {
+            throw new UnauthorizedException('Utilisateur non authentifié');
+        }
+
+        // Si l'utilisateur n'a pas le rôle requis
+        if (!requiredRoles.includes(user.role)) {
+            throw new ForbiddenException(`Accès refusé pour le rôle ${user.role}`);
+        }
+
+        return true;
     }
-
-    const hasRole = requiredRoles.includes(user.role_personnel);
-    if (!hasRole) {
-      this.logger.warn(`Accès refusé pour le rôle: ${user.role_personnel}`);
-      throw new ForbiddenException(`Accès refusé. Rôles autorisés: ${requiredRoles.join(', ')}`);
-    }
-
-    this.logger.log(`Accès autorisé pour ${user.email_travail} avec le rôle ${user.role_personnel}`);
-    return true;
-  }
 }

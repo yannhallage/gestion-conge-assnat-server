@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenException } from '@nestjs/common';
-import { PrismaService } from '../shared/prisma/prisma.service';
-import { EmailService } from '../shared/services/email.service';
-import { AuthService } from '../auth/auth.service';
-import { ApproveDemandeDto, RejectDemandeDto, InvitePersonnelDto } from './dto/chef.dto';
-import { Personnel, StatutDemande, RolePersonnel } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenException, InternalServerErrorException } from '@nestjs/common';
+// import { AuthService } from '../auth/auth.service';
+import { ApproveDemandeDto, RejectDemandeDto } from './dto/chef.dto';
+import type { Personnel } from '@prisma/client';
+import * as bcrypt from 'bcryptjs'
+import { PrismaService } from 'src/shared/prisma/prisma.service';
+import { EmailService } from 'src/shared/mail/mail.service';
+import { InvitePersonnelDto } from './dto/Inviter.dto';
+import { CreateDiscussionDto } from 'src/user/dto/user.dto';
 
 @Injectable()
 export class ChefdeserviceService {
@@ -13,31 +15,69 @@ export class ChefdeserviceService {
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
-    private authService: AuthService,
-  ) {}
+    // private authService: AuthService,
+  ) { }
 
-  async getServiceDemandes(chef: Personnel) {
-    this.logger.log(`Récupération des demandes du service pour le chef ${chef.email_travail}`);
+  async getServiceDemandes(id_chef: string) {
+    this.logger.log(`Récupération des demandes du service pour le chef ${id_chef}`);
 
+    // Récupérer le chef avec son service
+    const chef = await this.prisma.personnel.findUnique({
+      where: { id_personnel: id_chef },
+      include: { service: true }, // Inclure le service pour récupérer id_service
+    });
+
+    if (!chef) throw new NotFoundException('Chef de service non trouvé');
+    if (!chef.service) throw new NotFoundException('Service du chef introuvable');
+
+    // Récupérer toutes les demandes du service du chef
     const demandes = await this.prisma.demande.findMany({
-      where: { 
-        id_service: chef.id_service,
+      where: {
+        id_service: chef.service.id_service,
         statut_demande: { in: ['EN_ATTENTE', 'APPROUVEE', 'REFUSEE'] },
       },
       include: {
         personnel: true,
-        periodeConge: {
-          include: { typeConge: true },
-        },
-        discussions: {
-          orderBy: { date_message: 'desc' },
-        },
+        periodeConge: { include: { typeConge: true } },
+        discussions: { orderBy: { date_message: 'desc' } },
         ficheDeConge: true,
       },
       orderBy: { date_demande: 'desc' },
     });
 
+    this.logger.log(`demandes récupérées`);
     return demandes;
+  }
+
+  async getHistoriqueDemandes(id_chef: string) {
+    this.logger.log(`Récupération de l’historique des demandes pour le chef ${id_chef}`);
+
+    const chef = await this.prisma.personnel.findUnique({
+      where: { id_personnel: id_chef },
+      include: { service: true },
+    });
+
+    if (!chef) {
+      throw new NotFoundException('Chef de service non trouvé');
+    }
+
+    if (!chef.service) {
+      throw new NotFoundException('Service du chef introuvable');
+    }
+
+    return this.prisma.demande.findMany({
+      where: {
+        id_service: chef.service.id_service,
+        statut_demande: { in: ['TERMINEE', 'REFUSEE'] },
+      },
+      include: {
+        personnel: true,
+        periodeConge: { include: { typeConge: true } },
+        discussions: { orderBy: { date_message: 'desc' } },
+        ficheDeConge: true,
+      },
+      orderBy: { date_demande: 'desc' },
+    });
   }
 
   async approveDemande(chef: Personnel, demandeId: string, approveDto: ApproveDemandeDto) {
@@ -58,7 +98,7 @@ export class ChefdeserviceService {
 
     const updatedDemande = await this.prisma.demande.update({
       where: { id_demande: demandeId },
-      data: { 
+      data: {
         statut_demande: 'APPROUVEE',
       },
     });
@@ -104,7 +144,7 @@ export class ChefdeserviceService {
 
     const updatedDemande = await this.prisma.demande.update({
       where: { id_demande: demandeId },
-      data: { 
+      data: {
         statut_demande: 'REFUSEE',
       },
     });
@@ -148,7 +188,7 @@ export class ChefdeserviceService {
 
     const updatedDemande = await this.prisma.demande.update({
       where: { id_demande: demandeId },
-      data: { 
+      data: {
         statut_demande: 'REFUSEE',
       },
     });
@@ -207,93 +247,103 @@ export class ChefdeserviceService {
     return { message: 'Demande supprimée avec succès' };
   }
 
-  async invitePersonnel(chef: Personnel, inviteDto: InvitePersonnelDto) {
-    this.logger.log(`Invitation d'un nouveau personnel par le chef ${chef.email_travail}`);
-
-    // Vérifier que l'email n'existe pas déjà
-    const existingPersonnel = await this.prisma.personnel.findFirst({
-      where: {
-        OR: [
-          { email_travail: inviteDto.email_travail },
-          { email_personnel: inviteDto.email_personnel },
-        ],
-      },
-    });
-
-    if (existingPersonnel) {
-      throw new BadRequestException('Un personnel avec cet email existe déjà');
+  async invitePersonnel(dto: InvitePersonnelDto) {
+    if (!dto?.email_personnel) {
+      throw new BadRequestException('Email du personnel invalide pour invitation');
     }
 
-    // Générer un mot de passe temporaire
-    const temporaryPassword = await this.authService.generateTemporaryPassword();
-
-    // Créer le personnel
-    const newPersonnel = await this.prisma.personnel.create({
-      data: {
-        nom_personnel: inviteDto.nom_personnel,
-        prenom_personnel: inviteDto.prenom_personnel,
-        email_travail: inviteDto.email_travail,
-        email_personnel: inviteDto.email_personnel,
-        password: await bcrypt.hash(temporaryPassword, 10),
-        matricule_personnel: inviteDto.matricule_personnel,
-        telephone_travail: inviteDto.telephone_travail,
-        telephone_personnel: inviteDto.telephone_personnel,
-        type_personnel: inviteDto.type_personnel,
-        role_personnel: RolePersonnel.EMPLOYE,
-        id_service: chef.id_service,
-      },
+    // Vérifier si le personnel existe déjà
+    const existing = await this.prisma.personnel.findFirst({
+      where: { email_travail: dto.email_personnel },
     });
 
-    // Envoyer l'email d'invitation
+    // Générer un mot de passe temporaire
+    const tempPassword = Math.random().toString(36).slice(-8);
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+    let personnel;
+
+    if (existing) {
+      if (existing.is_active) {
+        // Le personnel existe et est actif → on arrête
+        throw new BadRequestException('Le personnel existe déjà et est actif');
+      } else {
+        // Le personnel existe mais est inactif → mise à jour du mot de passe et activation
+        personnel = await this.prisma.personnel.update({
+          where: { id_personnel: existing.id_personnel },
+          data: {
+            password: hashedPassword,
+            is_active: true,
+          },
+        });
+      }
+    }
+
+    // Envoyer l’email d’invitation
     await this.emailService.sendInvitationEmail(
-      inviteDto.email_travail,
-      temporaryPassword,
-      inviteDto.nom_personnel,
-      inviteDto.prenom_personnel,
+      dto.email_personnel,
+      tempPassword,
+      dto.nom_personnel,
+      dto.prenom_personnel
     );
 
-    // Mettre à jour le nombre de personnel du service
-    await this.prisma.service.update({
-      where: { id_service: chef.id_service },
-      data: {
-        nb_personnel: {
-          increment: 1,
-        },
-      },
-    });
-
-    this.logger.log(`Personnel invité avec succès: ${newPersonnel.email_travail}`);
-    return {
-      message: 'Personnel invité avec succès',
-      personnel: {
-        id: newPersonnel.id_personnel,
-        nom: newPersonnel.nom_personnel,
-        prenom: newPersonnel.prenom_personnel,
-        email: newPersonnel.email_travail,
-      },
-    };
+    return { message: 'Invitation envoyée', personnelId: personnel.id_personnel };
   }
 
-  async getServicePersonnel(chef: Personnel) {
-    this.logger.log(`Récupération du personnel du service pour le chef ${chef.email_travail}`);
 
-    const personnel = await this.prisma.personnel.findMany({
-      where: { 
-        id_service: chef.id_service,
-        is_active: true,
-      },
-      include: {
-        service: true,
-        _count: {
-          select: {
-            demandes: true,
-            fichesConge: true,
+  async getServicePersonnel(serviceId: string) {
+    if (!serviceId) {
+      this.logger.warn(`Service ID manquant`);
+      throw new BadRequestException('L’ID du service est requis');
+    }
+
+    this.logger.log(`Récupération du personnel du service ${serviceId}`);
+
+    try {
+      const personnelList = await this.prisma.personnel.findMany({
+        where: {
+          id_service: serviceId,
+          // is_active: true || false,
+        },
+        include: {
+          service: true,
+          _count: {
+            select: {
+              demandes: true,
+              fichesConge: true,
+              demandesEnCoursChef: true,
+            },
           },
         },
-      },
-      orderBy: { nom_personnel: 'asc' },
-    });
+        orderBy: { nom_personnel: 'asc' },
+      });
 
-    return personnel;
+      if (!personnelList.length) {
+        this.logger.log(`Aucun personnel trouvé pour le service ${serviceId}`);
+      }
+
+      return personnelList;
+    } catch (error) {
+      this.logger.error(
+        `Erreur lors de la récupération du personnel du service ${serviceId}: ${error.message}`,
+      );
+      throw new InternalServerErrorException('Impossible de récupérer le personnel du service');
+    }
   }
+
+  async addDiscussionToDemande(id_chef: string, demandeId: string, dto: CreateDiscussionDto) {
+      this.logger.log(`Ajout d'une discussion à la demande ${demandeId}`);
+  
+      const demande = await this.prisma.demande.findFirst({
+        where: { id_demande: demandeId },
+      });
+      if (!demande) throw new NotFoundException('Demande non trouvée ou non autorisée');
+  
+      const discussion = await this.prisma.discussion.create({
+        data: { message: dto.message, heure_message: dto.heure_message, id_demande: demandeId },
+      });
+  
+      this.logger.log(`Discussion ajoutée: ${discussion.id_discussion}`);
+      return discussion;
+    }
 }

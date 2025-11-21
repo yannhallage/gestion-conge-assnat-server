@@ -1,192 +1,95 @@
-import { Injectable, UnauthorizedException, Logger, BadRequestException, ConflictException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { PrismaService } from '../shared/prisma/prisma.service';
-import { LoginDto, ChangePasswordDto } from './dto/auth.dto';
-import * as bcrypt from 'bcryptjs';
-import { RegisterDto } from './dto/register.dto';
-import { RolePersonnel, TypePersonnel } from '@prisma/client';
+  import { Injectable, UnauthorizedException } from '@nestjs/common';
+  import { JwtService } from '@nestjs/jwt';
+  import * as bcrypt from 'bcryptjs';
+  import { PrismaService } from '../shared/prisma/prisma.service';
+  import { Personnel } from '@prisma/client';
+  import { LoginDto } from './dto/login.dto';
 
-@Injectable()
-export class AuthService {
-  private readonly logger = new Logger(AuthService.name);
+  @Injectable()
+  export class AuthService {
+    constructor(
+      private prisma: PrismaService,
+      private jwtService: JwtService,
+    ) { }
 
-  constructor(
-    private prisma: PrismaService,
-    private jwtService: JwtService,
-  ) { }
+    // -----------------------------
+    // Valider le personnel
+    // -----------------------------
+    async validatePersonnel(email: string, password: string): Promise<Personnel> {
+      const user = await this.prisma.personnel.findFirst({
+        where: { email_personnel: email, is_active: true },
+      });
 
-  async validateUser(email: string, password: string): Promise<any> {
-    this.logger.log(`Tentative de connexion pour l'email: ${email}`);
+      if (!user || !user.password) {
+        throw new UnauthorizedException('Identifiants invalides');
+      }
 
-    const user = await this.prisma.personnel.findUnique({
-      where: { email_travail: email },
-      include: {
-        service: {
-          include: { direction: true },
-        },
-      },
-    });
+      const valid = await bcrypt.compare(password, user.password);
+      if (!valid) {
+        throw new UnauthorizedException('Mot de passe incorrect');
+      }
 
-    if (!user) {
-      this.logger.warn(`Utilisateur non trouvé: ${email}`);
-      throw new UnauthorizedException('Email ou mot de passe incorrect');
+      if (!user.email_personnel) {
+        throw new UnauthorizedException('Email du personnel manquant');
+      }
+
+      return user;
     }
 
-    if (!user.is_active) {
-      this.logger.warn(`Tentative de connexion avec un compte inactif: ${email}`);
-      throw new UnauthorizedException('Compte inactif');
-    }
-
-    if (!user.password) {
-      this.logger.warn(`Utilisateur sans mot de passe: ${email}`);
-      throw new UnauthorizedException('Compte non configuré');
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      this.logger.warn(`Mot de passe incorrect pour: ${email}`);
-      throw new UnauthorizedException('Email ou mot de passe incorrect');
-    }
-
-    this.logger.log(`Connexion réussie pour: ${email}`);
-    return user;
-  }
-
-  async login(loginDto: LoginDto) {
-    const user = await this.validateUser(loginDto.email, loginDto.password);
-
-    const payload = {
-      email: user.email_travail,
-      sub: user.id_personnel,
-      role: user.role_personnel,
-    };
-
-    const accessToken = this.jwtService.sign(payload);
-
-    this.logger.log(`Token JWT généré pour: ${user.email_travail}`);
-
-    return {
-      access_token: accessToken,
+    // -----------------------------
+    // Authentification et génération JWT
+    // -----------------------------
+    async login(dto: LoginDto): Promise<{
+      access_token: string;
       user: {
-        id: user.id_personnel,
+        id: string;
+        email: string;
+        nom: string;
+        prenom: string;
+        role: string;
+        id_service: string;
+      };
+      redirect: string;
+    }> {
+      const user = await this.validatePersonnel(dto.email_personnel, dto.password);
+
+      // ✅ Correction de la typo
+      const payload = {
+        sub: user.id_personnel,
+        email: user.email_personnel!,
+        role: user.role_personnel,
         nom: user.nom_personnel,
         prenom: user.prenom_personnel,
-        email: user.email_travail,
-        role: user.role_personnel,
-        service: user.service?.nom_service,
-        direction: user.service?.direction?.nom_direction,
-      },
-    };
-  }
+        id_service: user.id_service,
+      };
 
-  async changePassword(userId: string, changePasswordDto: ChangePasswordDto) {
-    this.logger.log(`Demande de changement de mot de passe pour l'utilisateur: ${userId}`);
+      const access_token = this.jwtService.sign(payload);
 
-    const user = await this.prisma.personnel.findUnique({
-      where: { id_personnel: userId },
-    });
+      // Détermination de la route de redirection selon le rôle
+      let redirect: string;
+      switch (user.role_personnel) {
+        case 'RH':
+        case 'ADMIN':
+          redirect = 'rh';
+          break;
+        case 'CHEF_SERVICE':
+          redirect = 'chef';
+          break;
+        default:
+          redirect = 'employe';
+      }
 
-    if (!user || !user.password) {
-      throw new UnauthorizedException('Utilisateur non trouvé');
-    }
-
-    const isCurrentPasswordValid = await bcrypt.compare(
-      changePasswordDto.currentPassword,
-      user.password,
-    );
-
-    if (!isCurrentPasswordValid) {
-      this.logger.warn(`Tentative de changement de mot de passe avec un mot de passe actuel incorrect pour: ${user.email_travail}`);
-      throw new BadRequestException('Mot de passe actuel incorrect');
-    }
-
-    const hashedNewPassword = await bcrypt.hash(changePasswordDto.newPassword, 10);
-
-    await this.prisma.personnel.update({
-      where: { id_personnel: userId },
-      data: { password: hashedNewPassword },
-    });
-
-    this.logger.log(`Mot de passe changé avec succès pour: ${user.email_travail}`);
-
-    return { message: 'Mot de passe changé avec succès' };
-  }
-
-  async generateTemporaryPassword(): Promise<string> {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let password = '';
-    for (let i = 0; i < 8; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return password;
-  }
-
-  async register(registerDto: RegisterDto) {
-    this.logger.log(`Tentative d'inscription pour: ${registerDto.email}`);
-
-    // Vérifier si l'email existe déjà
-    const existingUser = await this.prisma.personnel.findUnique({
-      where: { email_travail: registerDto.email },
-    });
-
-    if (existingUser) {
-      this.logger.warn(`Tentative d'inscription avec un email existant: ${registerDto.email}`);
-      throw new ConflictException('Cet email est déjà utilisé');
-    }
-
-    // Vérifier si le service existe
-    const service = await this.prisma.service.findUnique({
-      where: { id_service: registerDto.id_service },
-    });
-
-    if (!service) {
-      this.logger.warn(`Service non trouvé: ${registerDto.id_service}`);
-      throw new BadRequestException('Service non trouvé');
-    }
-
-    // Vérifier que le mot de passe est fourni
-    if (!registerDto.password) {
-      this.logger.warn(`Mot de passe manquant pour l'inscription de: ${registerDto.email}`);
-      throw new BadRequestException('Le mot de passe est requis');
-    }
-
-    // Hasher le mot de passe
-    const hashedPassword = await bcrypt.hash(registerDto.password, 10);
-
-    // Créer l'utilisateur
-    const user = await this.prisma.personnel.create({
-      data: {
-        nom_personnel: registerDto.nom,
-        prenom_personnel: registerDto.prenom,
-        email_travail: registerDto.email,
-        password: hashedPassword,
-        id_service: registerDto.id_service,
-        role_personnel: (registerDto.role as RolePersonnel) || RolePersonnel.EMPLOYE,
-        type_personnel: (registerDto.type as TypePersonnel) || TypePersonnel.PERMANENT,
-        matricule_personnel: registerDto.matricule,
-        telephone_travail: registerDto.telephone_travail,
-        is_active: true,
-      },
-      include: {
-        service: {
-          include: { direction: true },
+      return {
+        access_token,
+        user: {
+          id: user.id_personnel,
+          email: user.email_travail!, // à vérifier si tu veux email_travail ou email_personnel
+          nom: user.nom_personnel,
+          prenom: user.prenom_personnel,
+          role: user.role_personnel,
+          id_service: user.id_service,
         },
-      },
-    });
-
-    this.logger.log(`Utilisateur créé avec succès: ${user.email_travail}`);
-
-    return {
-      message: 'Inscription réussie',
-      user: {
-        id: user.id_personnel,
-        nom: user.nom_personnel,
-        prenom: user.prenom_personnel,
-        email: user.email_travail,
-        role: user.role_personnel,
-        service: user.service?.nom_service,
-        direction: user.service?.direction?.nom_direction,
-      },
-    };
+        redirect,
+      };
+    }
   }
-}

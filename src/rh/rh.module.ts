@@ -1,26 +1,12 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD, Reflector } from '@nestjs/core';
 import { RhService } from './rh.service';
 import { RhController } from './rh.controller';
-import { PrismaModule } from '../shared/prisma/prisma.module';
-import { AuthModule } from '../auth/auth.module';
-import { JwtAuthGuard } from '../shared/guards/jwt-auth.guard';
-import { RolesGuard } from '../shared/guards/roles.guard';
+import { PrismaModule } from 'src/shared/prisma/prisma.module';
+import { EmailService } from 'src/shared/mail/mail.service';
 
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [PrismaModule],
   controllers: [RhController],
-  providers: [
-    RhService,
-    {
-      provide: APP_GUARD,
-      useClass: JwtAuthGuard,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: RolesGuard,
-    },
-  ],
-  exports: [RhService],
+  providers: [RhService, EmailService],
 })
-export class RhModule { }
+export class RhModule {}

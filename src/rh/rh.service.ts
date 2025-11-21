@@ -1,312 +1,179 @@
-import { Injectable, NotFoundException, BadRequestException, Logger, ConflictException } from '@nestjs/common';
-import { PrismaService } from '../shared/prisma/prisma.service';
-import { CreateDirectionDto, CreateServiceDto, CreatePersonnelDto, UpdatePersonnelDto } from './dto/rh.dto';
-import { Personnel, RolePersonnel } from '@prisma/client';
+import { Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
+import { PrismaService } from '../shared/prisma/prisma.service';
+import { CreateDirectionDto } from './dto/create-direction.dto';
+import { CreateServiceDto } from './dto/create-service.dto';
+import { CreatePersonnelDto } from './dto/create-personnel.dto';
+import { CreateAlertDto } from './dto/create-alert.dto';
+import { UpdatePersonnelDto } from './dto/update-personnel.dto';
+import { EmailService } from 'src/shared/mail/mail.service';
+import { CreateTypeCongeDto } from './dto/create-type-conge.dto';
 
 @Injectable()
 export class RhService {
   private readonly logger = new Logger(RhService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private emailService: EmailService,
+  ) { }
 
-  // Gestion des Directions
-  async createDirection(createDirectionDto: CreateDirectionDto) {
-    this.logger.log(`Création d'une nouvelle direction: ${createDirectionDto.nom_direction}`);
-
-    // Vérifier que le code de direction n'existe pas déjà
-    const existingDirection = await this.prisma.direction.findUnique({
-      where: { code_direction: createDirectionDto.code_direction },
-    });
-
-    if (existingDirection) {
-      throw new ConflictException('Une direction avec ce code existe déjà');
-    }
-
-    const direction = await this.prisma.direction.create({
-      data: {
-        code_direction: createDirectionDto.code_direction,
-        nom_direction: createDirectionDto.nom_direction,
-        nom_directeur: createDirectionDto.nom_directeur,
-        email_direction: createDirectionDto.email_direction,
-        statut: createDirectionDto.statut || 'ACTIF',
-        nb_personnel: 0,
-      },
-    });
-
-    this.logger.log(`Direction créée avec succès: ${direction.id_direction}`);
-    return direction;
+  // -----------------------------
+  // Directions
+  // -----------------------------
+  async createDirection(dto: CreateDirectionDto) {
+    return this.prisma.direction.create({ data: dto });
   }
 
   async getAllDirections() {
-    this.logger.log('Récupération de toutes les directions');
-
-    const directions = await this.prisma.direction.findMany({
-      include: {
-        services: {
-          include: {
-            _count: {
-              select: { personnels: true },
-            },
-          },
-        },
-        _count: {
-          select: { services: true },
-        },
-      },
-      orderBy: { nom_direction: 'asc' },
+    return this.prisma.direction.findMany({
+      include: { services: true },
     });
-
-    return directions;
   }
 
   async getDirectionById(id: string) {
-    this.logger.log(`Récupération de la direction: ${id}`);
-
     const direction = await this.prisma.direction.findUnique({
       where: { id_direction: id },
-      include: {
-        services: {
-          include: {
-            _count: {
-              select: { personnels: true },
-            },
-          },
-        },
-      },
+      include: { services: true },
     });
-
-    if (!direction) {
-      throw new NotFoundException('Direction non trouvée');
-    }
-
+    if (!direction) throw new NotFoundException('Direction non trouvée');
     return direction;
   }
 
-  // Gestion des Services
-  async createService(createServiceDto: CreateServiceDto) {
-    this.logger.log(`Création d'un nouveau service: ${createServiceDto.nom_service}`);
-
-    // Vérifier que la direction existe
-    const direction = await this.prisma.direction.findUnique({
-      where: { id_direction: createServiceDto.id_direction },
-    });
-
-    if (!direction) {
-      throw new NotFoundException('Direction non trouvée');
-    }
-
-    // Vérifier que le code de service n'existe pas déjà
-    const existingService = await this.prisma.service.findUnique({
-      where: { code_service: createServiceDto.code_service },
-    });
-
-    if (existingService) {
-      throw new ConflictException('Un service avec ce code existe déjà');
-    }
-
-    const service = await this.prisma.service.create({
-      data: {
-        code_service: createServiceDto.code_service,
-        nom_service: createServiceDto.nom_service,
-        id_direction: createServiceDto.id_direction,
-        nb_personnel: 0,
-      },
-      include: { direction: true },
-    });
-
-    // Mettre à jour le nombre de services de la direction
-    await this.prisma.direction.update({
-      where: { id_direction: createServiceDto.id_direction },
-      data: {
-        nb_personnel: {
-          increment: 0, // Pas de personnel ajouté, juste le service
-        },
-      },
-    });
-
-    this.logger.log(`Service créé avec succès: ${service.id_service}`);
-    return service;
+  // -----------------------------
+  // Services
+  // -----------------------------
+  async createService(dto: CreateServiceDto) {
+    return this.prisma.service.create({ data: dto });
   }
 
   async getAllServices() {
-    this.logger.log('Récupération de tous les services');
-
-    const services = await this.prisma.service.findMany({
-      include: {
-        direction: true,
-        _count: {
-          select: { personnels: true },
-        },
-      },
-      orderBy: { nom_service: 'asc' },
-    });
-
-    return services;
+    return this.prisma.service.findMany({ include: { personnels: true } });
   }
 
   async getServiceById(id: string) {
-    this.logger.log(`Récupération du service: ${id}`);
-
     const service = await this.prisma.service.findUnique({
       where: { id_service: id },
-      include: {
-        direction: true,
-        personnels: {
-          where: { is_active: true },
-          include: {
-            _count: {
-              select: { demandes: true },
-            },
-          },
-        },
-      },
+      include: { personnels: true, direction: true },
     });
-
-    if (!service) {
-      throw new NotFoundException('Service non trouvé');
-    }
-
+    if (!service) throw new NotFoundException('Service non trouvé');
     return service;
   }
 
-  // Gestion du Personnel
-  async createPersonnel(createPersonnelDto: CreatePersonnelDto) {
-    this.logger.log(`Création d'un nouveau personnel: ${createPersonnelDto.email_travail}`);
+  // -----------------------------
+  // Créer un personnel et envoyer un email de notification
+  // -----------------------------
+  /**
+   * Crée un nouveau personnel dans le système.
+   * Le mot de passe est hashé avant l'enregistrement.
+   * Un email de bienvenue est envoyé.
+   */
+  async createPersonnel(dto: CreatePersonnelDto) {
+    const prisma = this.prisma;
 
-    // Vérifier que le service existe
-    const service = await this.prisma.service.findUnique({
-      where: { id_service: createPersonnelDto.id_service },
-    });
+    return await prisma.$transaction(async (tx) => {
+      try {
+        // 1️⃣ Détermination du mot de passe
+        const sanitizeName = (value?: string) =>
+          (value ?? '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-zA-Z0-9]/g, '')
+            .toLowerCase();
 
-    if (!service) {
-      throw new NotFoundException('Service non trouvé');
-    }
+        const baseName = sanitizeName(dto.prenom_personnel) || sanitizeName(dto.nom_personnel);
 
-    // Vérifier que l'email n'existe pas déjà
-    const existingPersonnel = await this.prisma.personnel.findFirst({
-      where: {
-        OR: [
-          { email_travail: createPersonnelDto.email_travail },
-          { email_personnel: createPersonnelDto.email_personnel },
-        ],
-      },
-    });
+        if (!baseName) {
+          throw new BadRequestException('Le prénom ou le nom est requis pour générer le mot de passe');
+        }
 
-    if (existingPersonnel) {
-      throw new ConflictException('Un personnel avec cet email existe déjà');
-    }
+        const passwordToUse = `${baseName}@assnat.ci`;
 
-    // Vérifier que le matricule n'existe pas déjà
-    if (createPersonnelDto.matricule_personnel) {
-      const existingMatricule = await this.prisma.personnel.findUnique({
-        where: { matricule_personnel: createPersonnelDto.matricule_personnel },
-      });
+        if (dto.role_personnel === 'CHEF_SERVICE') {
+          this.logger.log(`🔐 Mot de passe auto-généré pour le chef de service`);
+        }
 
-      if (existingMatricule) {
-        throw new ConflictException('Un personnel avec ce matricule existe déjà');
+        const hashedPassword = await bcrypt.hash(passwordToUse, 10);
+
+        // 2️⃣ Création du personnel
+        const personnel = await tx.personnel.create({
+          data: {
+            ...dto,
+            password: hashedPassword,
+            is_active: dto.role_personnel === 'CHEF_SERVICE',
+          },
+          include: { service: true },
+        });
+
+        this.logger.log(`✅ Personnel créé : ${personnel.prenom_personnel} ${personnel.nom_personnel}`);
+
+        // 3️⃣ Si CHEF_SERVICE, mettre à jour la table service
+        if (dto.role_personnel === 'CHEF_SERVICE') {
+          await tx.service.update({
+            where: { id_service: dto.id_service },
+            data: { id_chefdeservice: personnel.id_personnel },
+          });
+          this.logger.log(`🔄 Service mis à jour avec id_chefdeservice = ${personnel.id_personnel}`);
+        }
+
+        // 4️⃣ Préparation du contenu email
+        let subject: string;
+        let message: string;
+        const recipient = personnel.email_personnel!;
+
+        if (dto.role_personnel === 'CHEF_SERVICE') {
+          subject = 'Création de votre compte Chef de Service';
+          message = `
+          <p>Bonjour ${personnel.prenom_personnel} ${personnel.nom_personnel},</p>
+          <p>Votre compte Chef de Service a été créé avec succès.</p>
+          <p>Voici vos identifiants de connexion :</p>
+          <ul>
+            <li><strong>Email :</strong> ${personnel.email_personnel}</li>
+            <li><strong>Mot de passe :</strong> ${passwordToUse}</li>
+          </ul>
+          <p>Veuillez modifier votre mot de passe après la première connexion.</p>
+          <p>Cordialement,<br>L’équipe RH</p>
+        `;
+        
+        } else {
+          subject = 'Bienvenue dans le système de gestion des congés';
+          message = `
+          <p>Bonjour ${personnel.prenom_personnel} ${personnel.nom_personnel},</p>
+          <p>Votre compte a été créé avec succès dans le système.</p>
+          <p>Vous pouvez maintenant accéder à votre interface dédiée.</p>
+          <p>Cordialement,<br>L’équipe RH</p>
+        `;
+        }
+
+        // 5️⃣ Envoi d’email
+        try {
+          await this.emailService.sendNotificationEmail(recipient, subject, message);
+          this.logger.log(`📩 Email envoyé à ${recipient}`);
+        } catch (emailError) {
+          this.logger.error(`❌ Erreur lors de l’envoi d’email: ${emailError.message}`);
+          throw new Error('Échec lors de l’envoi de l’email');
+        }
+
+        // 6️⃣ Retour succès
+        return { success: true, id: personnel.id_personnel };
+      } catch (error) {
+        this.logger.error(`🚨 Erreur lors de la création du personnel: ${error.message}`);
+        throw new BadRequestException('Impossible de créer le personnel');
       }
-    }
-
-    const hashedPassword = await bcrypt.hash(createPersonnelDto.password, 10);
-
-    const personnel = await this.prisma.personnel.create({
-      data: {
-        nom_personnel: createPersonnelDto.nom_personnel,
-        prenom_personnel: createPersonnelDto.prenom_personnel,
-        email_travail: createPersonnelDto.email_travail,
-        email_personnel: createPersonnelDto.email_personnel,
-        password: hashedPassword,
-        matricule_personnel: createPersonnelDto.matricule_personnel,
-        telephone_travail: createPersonnelDto.telephone_travail,
-        telephone_personnel: createPersonnelDto.telephone_personnel,
-        ville_personnel: createPersonnelDto.ville_personnel,
-        adresse_personnel: createPersonnelDto.adresse_personnel,
-        codepostal: createPersonnelDto.codepostal,
-        pays_personnel: createPersonnelDto.pays_personnel,
-        telephone_contact_urgence: createPersonnelDto.telephone_contact_urgence,
-        nom_contact_urgence: createPersonnelDto.nom_contact_urgence,
-        role_personnel: createPersonnelDto.role_personnel,
-        type_personnel: createPersonnelDto.type_personnel,
-        id_service: createPersonnelDto.id_service,
-      },
-      include: { service: { include: { direction: true } } },
     });
-
-    // Mettre à jour le nombre de personnel du service
-    await this.prisma.service.update({
-      where: { id_service: createPersonnelDto.id_service },
-      data: {
-        nb_personnel: {
-          increment: 1,
-        },
-      },
-    });
-
-    // Mettre à jour le nombre de personnel de la direction
-    await this.prisma.direction.update({
-      where: { id_direction: service.id_direction },
-      data: {
-        nb_personnel: {
-          increment: 1,
-        },
-      },
-    });
-
-    this.logger.log(`Personnel créé avec succès: ${personnel.id_personnel}`);
-    return personnel;
   }
 
+
   async getAllPersonnel() {
-    this.logger.log('Récupération de tout le personnel');
-
-    const personnel = await this.prisma.personnel.findMany({
-      include: {
-        service: {
-          include: { direction: true },
-        },
-        _count: {
-          select: {
-            demandes: true,
-            fichesConge: true,
-          },
-        },
-      },
-      orderBy: { nom_personnel: 'asc' },
-    });
-
-    return personnel;
+    return this.prisma.personnel.findMany({ include: { service: true } });
   }
 
   async getPersonnelById(id: string) {
-    this.logger.log(`Récupération du personnel: ${id}`);
-
     const personnel = await this.prisma.personnel.findUnique({
       where: { id_personnel: id },
       include: {
-        service: {
-          include: { direction: true },
-        },
-        demandes: {
-          include: {
-            periodeConge: {
-              include: { typeConge: true },
-            },
-          },
-          orderBy: { date_demande: 'desc' },
-        },
-        fichesConge: {
-          include: {
-            demande: {
-              include: {
-                periodeConge: {
-                  include: { typeConge: true },
-                },
-              },
-            },
-          },
-          orderBy: { date_message: 'desc' },
-        },
+        service: true,
+        demandes: true
       },
     });
 
@@ -317,114 +184,82 @@ export class RhService {
     return personnel;
   }
 
-  async updatePersonnel(id: string, updatePersonnelDto: UpdatePersonnelDto) {
-    this.logger.log(`Mise à jour du personnel: ${id}`);
 
-    const existingPersonnel = await this.prisma.personnel.findUnique({
+  async updatePersonnel(id: string, dto: UpdatePersonnelDto) {
+    return this.prisma.personnel.update({
       where: { id_personnel: id },
+      data: dto,
     });
-
-    if (!existingPersonnel) {
-      throw new NotFoundException('Personnel non trouvé');
-    }
-
-    // Vérifier que l'email n'existe pas déjà (si modifié)
-    if (updatePersonnelDto.email_travail && updatePersonnelDto.email_travail !== existingPersonnel.email_travail) {
-      const existingEmail = await this.prisma.personnel.findFirst({
-        where: {
-          email_travail: updatePersonnelDto.email_travail,
-          id_personnel: { not: id },
-        },
-      });
-
-      if (existingEmail) {
-        throw new ConflictException('Un personnel avec cet email existe déjà');
-      }
-    }
-
-    const updatedPersonnel = await this.prisma.personnel.update({
-      where: { id_personnel: id },
-      data: updatePersonnelDto,
-      include: { service: { include: { direction: true } } },
-    });
-
-    this.logger.log(`Personnel mis à jour avec succès: ${id}`);
-    return updatedPersonnel;
   }
 
   async deletePersonnel(id: string) {
-    this.logger.log(`Suppression du personnel: ${id}`);
-
-    const personnel = await this.prisma.personnel.findUnique({
-      where: { id_personnel: id },
-      include: { service: true },
-    });
-
-    if (!personnel) {
-      throw new NotFoundException('Personnel non trouvé');
-    }
-
-    // Désactiver au lieu de supprimer
-    await this.prisma.personnel.update({
+    return this.prisma.personnel.update({
       where: { id_personnel: id },
       data: { is_active: false },
     });
-
-    // Mettre à jour les compteurs
-    await this.prisma.service.update({
-      where: { id_service: personnel.id_service },
-      data: {
-        nb_personnel: {
-          decrement: 1,
-        },
-      },
-    });
-
-    await this.prisma.direction.update({
-      where: { id_direction: personnel.service.id_direction },
-      data: {
-        nb_personnel: {
-          decrement: 1,
-        },
-      },
-    });
-
-    this.logger.log(`Personnel désactivé avec succès: ${id}`);
-    return { message: 'Personnel désactivé avec succès' };
   }
 
-  // Statistiques
+  // -----------------------------
+  // Statistiques RH
+  // -----------------------------
   async getStatistics() {
-    this.logger.log('Récupération des statistiques RH');
-
-    const [
-      totalDirections,
-      totalServices,
-      totalPersonnel,
-      totalDemandes,
-      demandesEnAttente,
-      demandesApprouvees,
-      demandesRefusees,
-    ] = await Promise.all([
-      this.prisma.direction.count(),
-      this.prisma.service.count(),
-      this.prisma.personnel.count({ where: { is_active: true } }),
-      this.prisma.demande.count(),
-      this.prisma.demande.count({ where: { statut_demande: 'EN_ATTENTE' } }),
-      this.prisma.demande.count({ where: { statut_demande: 'APPROUVEE' } }),
-      this.prisma.demande.count({ where: { statut_demande: 'REFUSEE' } }),
-    ]);
+    const totalPersonnel = await this.prisma.personnel.count();
+    const totalDirections = await this.prisma.direction.count();
+    const totalServices = await this.prisma.service.count();
 
     return {
-      directions: totalDirections,
-      services: totalServices,
-      personnel: totalPersonnel,
-      demandes: {
-        total: totalDemandes,
-        en_attente: demandesEnAttente,
-        approuvees: demandesApprouvees,
-        refusees: demandesRefusees,
-      },
+      totalPersonnel,
+      totalDirections,
+      totalServices,
     };
   }
+
+  // -----------------------------
+  // Alertes
+  // -----------------------------
+  async createAlert(dto: CreateAlertDto) {
+    // Ici on peut juste créer une table alerts si tu veux
+    // Pour l'exemple, on logue
+    this.logger.log(`Alerte créée : ${JSON.stringify(dto)}`);
+    return { message: 'Alerte créée', data: dto };
+  }
+  
+  // -----------------------------
+  // type de congés
+  // -----------------------------
+
+  async createTypeConge(dto: CreateTypeCongeDto) {
+    try {
+      return await this.prisma.typeConge.create({
+        data: {
+          libelle_typeconge: dto.libelle_typeconge,
+          is_active: dto.is_active ?? true, // par défaut true
+        },
+      });
+    } catch (error) {
+      // Gestion des erreurs Prisma, par exemple unicité
+      if (error.code === 'P2002') {
+        throw new BadRequestException('Ce libellé de type de congé existe déjà');
+      }
+      throw error;
+    }
+  }
+
+  // -----------------------------
+  // Consulter toutes les demandes
+  // -----------------------------
+  async consulterDemandes() {
+    return this.prisma.demande.findMany({
+      where: {
+        statut_demande: 'APPROUVEE', // filtre les demandes approuvées
+      },
+      include: {
+        periodeConge: true,
+        service: true,
+        personnel: true,
+        chefService: true,
+      },
+    });
+  }
+
 }

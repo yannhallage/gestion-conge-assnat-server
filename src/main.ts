@@ -1,59 +1,78 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { Logger, ValidationPipe } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+const helmet = require('helmet');
+const morgan = require('morgan');
+const compression = require('compression');
+const cookieParser = require('cookie-parser');;
+import { config } from 'dotenv';
+config();
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  
-  const app = await NestFactory.create(AppModule);
-  
-  // Configuration globale de validation
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }));
 
-  // Configuration CORS
+  // Création de l'application Nest
+  const app = await NestFactory.create(AppModule, {
+    logger: ['log', 'error', 'warn', 'debug', 'verbose'], // logging complet
+  });
+
+  // -----------------------------
+  // Middleware de sécurité
+  // -----------------------------
+  app.use(helmet()); // sécurise les headers HTTP
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: process.env.CORS_ORIGIN?.split(',') || '*', // configurer pour ton front
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
   });
+  app.use(cookieParser()); // pour gérer les cookies
+  app.use(compression());  // compression gzip pour réduire la taille des réponses
 
-  // Configuration Swagger
-  const config = new DocumentBuilder()
-    .setTitle('API Gestion des Congés - Assemblée Nationale')
-    .setDescription('API complète pour la gestion des demandes de congés et du personnel de l\'Assemblée Nationale du Québec')
-    .setVersion('1.0')
+  // -----------------------------
+  // Middleware de logging HTTP
+  // -----------------------------
+  if (process.env.NODE_ENV !== 'production') {
+    app.use(morgan('dev')); // log léger en dev
+  } else {
+    app.use(morgan('combined')); // log complet en prod
+  }
+
+  // -----------------------------
+  // Pipes de validation globale
+  // -----------------------------
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true, // supprime les propriétés non déclarées dans les DTO
+      forbidNonWhitelisted: true, // lance une erreur si une propriété inconnue est envoyée
+      transform: true, // transforme les payloads en DTO
+      transformOptions: { enableImplicitConversion: true }, // conversion automatique des types
+    }),
+  );
+
+  // -----------------------------
+  // Configuration Swagger / OpenAPI
+  // -----------------------------
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('API RH / Gestion des congés')
+    .setDescription('API pour gérer les demandes de congés, personnel et services')
+    .setVersion('1.0.0')
     .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        name: 'JWT',
-        description: 'Entrez votre token JWT',
-        in: 'header',
-      },
-      'JWT-auth',
+      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+      'Authorization',
     )
-    .addTag('Authentification', 'Endpoints pour l\'authentification et la gestion des comptes')
-    .addTag('Utilisateur (Employé)', 'Endpoints pour les employés')
-    .addTag('Chef de Service', 'Endpoints pour les chefs de service')
-    .addTag('Ressources Humaines', 'Endpoints pour les RH')
     .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-    },
-  });
+  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('api/docs', app, document);
+  logger.log('Swagger docs available at /api/docs');
 
-  const port = process.env.PORT || 3000;
+  // -----------------------------
+  // Lancement du serveur
+  // -----------------------------
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 3003;
   await app.listen(port);
-  
-  logger.log(`🚀 Application démarrée sur le port ${port}`);
-  logger.log(`📚 Documentation Swagger disponible sur http://localhost:${port}/api/docs`);
+  logger.log(`Application is running on: http://localhost:${port}`);
 }
+
 bootstrap();
