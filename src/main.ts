@@ -78,7 +78,7 @@ async function bootstrap() {
   // -----------------------------
   // Port dynamique Render + fallback local
   // -----------------------------
-  const port = parseInt(process.env.PORT || '3000', 10);
+  const port = parseInt(process.env.PORT || '3003', 10);
   await app.listen(port);
   logger.log(`Application is running on port: ${port}`);
 }
