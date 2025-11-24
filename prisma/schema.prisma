@@ -1,0 +1,139 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model demandes {
+  id_demande                                      String          @id
+  type_demande                                    String
+  statut_demande                                  StatutDemande   @default(EN_ATTENTE)
+  date_demande                                    DateTime        @default(now())
+  motif                                           String?
+  id_personnel                                    String
+  id_service                                      String?
+  id_periodeconge                                 String?
+  id_chef_service                                 String?
+  personnels_demandes_id_chef_serviceTopersonnels personnels?     @relation("demandes_id_chef_serviceTopersonnels", fields: [id_chef_service], references: [id_personnel])
+  periodes_conge                                  periodes_conge? @relation(fields: [id_periodeconge], references: [id_periodeconge])
+  personnels_demandes_id_personnelTopersonnels    personnels      @relation("demandes_id_personnelTopersonnels", fields: [id_personnel], references: [id_personnel])
+  services                                        services?       @relation(fields: [id_service], references: [id_service])
+  discussions                                     discussions[]
+  fiches_conge                                    fiches_conge?
+}
+
+model directions {
+  id_direction    String     @id
+  code_direction  String     @unique
+  nom_direction   String
+  nom_directeur   String
+  email_direction String?
+  statut          String?    @default("ACTIF")
+  date_creation   DateTime   @default(now())
+  nb_personnel    Int?       @default(0)
+  services        services[]
+}
+
+model discussions {
+  id_discussion String   @id
+  message       String
+  date_message  DateTime @default(now())
+  heure_message String?
+  id_demande    String
+  demandes      demandes @relation(fields: [id_demande], references: [id_demande])
+}
+
+model fiches_conge {
+  id_ficheconge String     @id
+  message       String?
+  date_message  DateTime   @default(now())
+  heure_message String?
+  id_demande    String     @unique
+  id_personnel  String
+  demandes      demandes   @relation(fields: [id_demande], references: [id_demande])
+  personnels    personnels @relation(fields: [id_personnel], references: [id_personnel])
+}
+
+model periodes_conge {
+  id_periodeconge String      @id
+  date_debut      DateTime
+  date_fin        DateTime
+  nb_jour         Int
+  id_typeconge    String
+  demandes        demandes[]
+  types_conge     types_conge @relation(fields: [id_typeconge], references: [id_typeconge])
+}
+
+model personnels {
+  id_personnel                                  String         @id
+  nom_personnel                                 String
+  prenom_personnel                              String
+  email_personnel                               String?        @unique
+  email_travail                                 String?        @unique
+  password                                      String?
+  date_naissance                                DateTime?
+  matricule_personnel                           String?        @unique
+  telephone_travail                             String?
+  telephone_personnel                           String?
+  ville_personnel                               String?
+  adresse_personnel                             String?
+  codepostal                                    String?
+  pays_personnel                                String?
+  telephone_contact_urgence                     String?
+  nom_contact_urgence                           String?
+  role_personnel                                RolePersonnel  @default(EMPLOYE)
+  type_personnel                                TypePersonnel  @default(PERMANENT)
+  date_creation                                 DateTime       @default(now())
+  id_service                                    String
+  is_active                                     Boolean        @default(true)
+  disponibilit__day                             Int            @default(45) @map("disponibilité_day")
+  demandes_demandes_id_chef_serviceTopersonnels demandes[]     @relation("demandes_id_chef_serviceTopersonnels")
+  demandes_demandes_id_personnelTopersonnels    demandes[]     @relation("demandes_id_personnelTopersonnels")
+  fiches_conge                                  fiches_conge[]
+  services                                      services       @relation(fields: [id_service], references: [id_service])
+}
+
+model services {
+  id_service       String       @id
+  code_service     String       @unique
+  nom_service      String
+  nb_personnel     Int?         @default(0)
+  date_creation    DateTime     @default(now())
+  id_direction     String
+  id_chefdeservice String?      @default("a definir")
+  demandes         demandes[]
+  personnels       personnels[]
+  directions       directions   @relation(fields: [id_direction], references: [id_direction])
+}
+
+model types_conge {
+  id_typeconge      String           @id
+  libelle_typeconge String           @unique
+  date_creation     DateTime         @default(now())
+  is_active         Boolean          @default(true)
+  periodes_conge    periodes_conge[]
+}
+
+enum RolePersonnel {
+  ADMIN
+  RH
+  CHEF_SERVICE
+  EMPLOYE
+}
+
+enum StatutDemande {
+  EN_ATTENTE
+  APPROUVEE
+  REFUSEE
+  ANNULEE
+  TERMINEE
+}
+
+enum TypePersonnel {
+  PERMANENT
+  CONTRACTUEL
+  STAGIAIRE
+}
